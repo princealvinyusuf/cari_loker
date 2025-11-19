@@ -164,11 +164,11 @@
                                 @endauth
                                 <!-- Company Logo & Info -->
                                 <div class="flex items-start gap-3 mb-4">
-                                    @if($job->company->logo_path)
-                                        <img class="w-12 h-12 rounded-full object-cover border border-gray-200 flex-shrink-0" 
-                                             src="{{ Storage::url($job->company->logo_path) }}" 
-                                             alt="{{ $job->company->name }} logo" loading="lazy">
-                                    @else
+                                @if($job->company->logo_path)
+                                    <img class="w-12 h-12 rounded-full object-cover border border-gray-200 flex-shrink-0" 
+                                         src="{{ $job->company->logo_url }}" 
+                                         alt="{{ $job->company->name }} logo" loading="lazy">
+                                @else
                                         <div class="w-12 h-12 rounded-full border border-gray-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 flex items-center justify-center flex-shrink-0">
                                             <i class="fa-solid fa-building text-lg text-violet-600"></i>
                                         </div>

@@ -56,7 +56,7 @@
                     @endphp
                     <div class="absolute transform hover:scale-110 transition-transform" style="top: {{ $pos['top'] }}; {{ isset($pos['left']) ? 'left: ' . $pos['left'] : 'right: ' . $pos['right'] }}; opacity: {{ $pos['opacity'] }};">
                         @if($company->logo_path)
-                            <img src="{{ Storage::url($company->logo_path) }}" alt="{{ $company->name }}" class="w-16 h-16 object-contain filter grayscale">
+                            <img src="{{ $company->logo_url }}" alt="{{ $company->name }}" class="w-16 h-16 object-contain filter grayscale">
                         @else
                             <div class="w-16 h-16 rounded-full bg-gradient-to-br from-violet-100 to-fuchsia-100 flex items-center justify-center">
                                 <span class="text-2xl font-bold text-violet-600">{{ substr($company->name, 0, 1) }}</span>
@@ -166,7 +166,7 @@
                         <div class="flex items-start gap-4 mb-4">
                             @if($job->company->logo_path)
                                 <img class="w-14 h-14 rounded-full object-cover border-2 border-gray-200 group-hover:border-white flex-shrink-0 transition-colors" 
-                                     src="{{ Storage::url($job->company->logo_path) }}" 
+                                     src="{{ $job->company->logo_url }}" 
                                      alt="{{ $job->company->name }} logo" loading="lazy">
                             @else
                                 <div class="w-14 h-14 rounded-full border-2 border-gray-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 group-hover:border-white group-hover:bg-white flex items-center justify-center flex-shrink-0 transition-colors">

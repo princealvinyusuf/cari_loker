@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
 
 class Company extends Model
 {
@@ -41,5 +43,20 @@ class Company extends Model
     public function getRouteKeyName(): string
     {
         return 'slug';
+    }
+
+    public function getLogoUrlAttribute(): ?string
+    {
+        if (!$this->logo_path) {
+            return null;
+        }
+
+        // If it's already an absolute URL, return as-is.
+        if (Str::startsWith($this->logo_path, ['http://', 'https://'])) {
+            return $this->logo_path;
+        }
+
+        // Otherwise treat it as a local storage path.
+        return Storage::url($this->logo_path);
     }
 }

@@ -140,7 +140,7 @@
                                 <div class="flex items-start gap-4 mb-4">
                                     @if($company->logo_path)
                                         <img class="w-16 h-16 rounded-xl object-cover border border-gray-200 flex-shrink-0" 
-                                             src="{{ Storage::url($company->logo_path) }}" 
+                                             src="{{ $company->logo_url }}" 
                                              alt="{{ $company->name }} logo" loading="lazy">
                                     @else
                                         <div class="w-16 h-16 rounded-xl border border-gray-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 flex items-center justify-center flex-shrink-0">
