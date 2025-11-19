@@ -10,13 +10,73 @@ use App\Models\Skill;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Maatwebsite\Excel\Concerns\ToCollection;
-use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
-class JobsImport implements ToCollection, WithHeadingRow
+class JobsImport
 {
 	private int $successCount = 0;
 	private array $errors = [];
+
+	public function import(string $filePath): void
+	{
+		if (!is_readable($filePath)) {
+			$this->errors[] = "File tidak dapat dibaca: {$filePath}";
+			return;
+		}
+
+		$handle = fopen($filePath, 'r');
+		if ($handle === false) {
+			$this->errors[] = "Gagal membuka file: {$filePath}";
+			return;
+		}
+
+		$header = null;
+		$rows = [];
+		$rowIndex = 0;
+
+		while (($data = fgetcsv($handle, 0, ',')) !== false) {
+			$rowIndex++;
+
+			// first row = header
+			if ($rowIndex === 1) {
+				$header = array_map(function ($value) {
+					$value = strtolower(trim((string) $value));
+					$replacements = [
+						' ' => '_',
+						'/' => '_',
+						'\\' => '_',
+						'-' => '_',
+					];
+					return strtr($value, $replacements);
+				}, $data);
+				continue;
+			}
+
+			if (!$header) {
+				continue;
+			}
+
+			$rowAssoc = [];
+			foreach ($data as $i => $value) {
+				if (!isset($header[$i])) {
+					continue;
+				}
+				$rowAssoc[$header[$i]] = $value;
+			}
+
+			// skip completely empty rows
+			if (!array_filter($rowAssoc, fn($v) => trim((string) $v) !== '')) {
+				continue;
+			}
+
+			$rows[] = $rowAssoc;
+		}
+
+		fclose($handle);
+
+		if (!empty($rows)) {
+			$this->collection(collect($rows));
+		}
+	}
 
 	public function collection(Collection $rows)
 	{
@@ -134,9 +194,8 @@ class JobsImport implements ToCollection, WithHeadingRow
 			$dt = \DateTime::createFromFormat($fmt, $value);
 			if ($dt) return $dt->format('Y-m-d');
 		}
-		// Excel serialized number
 		if (is_numeric($value)) {
-			return date('Y-m-d', \PhpOffice\PhpSpreadsheet\Shared\Date::excelToTimestamp((float)$value));
+			return date('Y-m-d', (int) $value);
 		}
 		return null;
 	}

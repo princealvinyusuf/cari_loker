@@ -36,7 +36,7 @@ class JobImportController extends Controller
 		}
 
 		$request->validate([
-			'file' => ['required', 'file', 'mimes:xlsx,csv,txt'],
+			'file' => ['required', 'file', 'mimes:csv,txt'],
 		]);
 
 		$path = $request->file('file')->store('imports');
