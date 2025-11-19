@@ -88,6 +88,20 @@
                         @csrf
                         <button class="px-4 py-2 rounded bg-red-600 hover:bg-red-500 text-white font-semibold">{{ __('Truncate Related Tables') }}</button>
                     </form>
+                    <div class="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
+                        <h3 class="font-semibold text-gray-800 dark:text-gray-200 mb-2">{{ __('Fill The Blank in Companies') }}</h3>
+                        <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                            {{ __('This will try to fill empty company logo fields from the staging table') }}
+                            <code>job_imports</code>
+                            {{ __('by matching on company name (Nama Perusahaan). Only companies with NULL logo_path will be updated.') }}
+                        </p>
+                        <form method="POST" action="{{ route('admin.companies.fill-blanks') }}">
+                            @csrf
+                            <button class="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white font-semibold">
+                                {{ __('Fill The Blank in Companies') }}
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>

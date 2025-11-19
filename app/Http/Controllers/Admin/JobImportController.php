@@ -246,6 +246,56 @@ class JobImportController extends Controller
 		}
 	}
 
+	public function fillCompanyBlanks(Request $request)
+	{
+		if (!Auth::user() || Auth::user()->role !== 'admin') {
+			abort(403);
+		}
+
+		// For now we only support filling logo_path from job_imports,
+		// and we require that column to exist in the staging table.
+		if (!Schema::hasColumn('job_imports', 'logo_path')) {
+			return Redirect::route('admin.jobs.import.create')
+				->with('import_errors', [__('Column :column not found on table :table.', ['column' => 'logo_path', 'table' => 'job_imports'])]);
+		}
+
+		@set_time_limit(0);
+		DB::disableQueryLog();
+
+		$updated = 0;
+		$errors = [];
+
+		Company::whereNull('logo_path')
+			->orderBy('id')
+			->chunkById(100, function ($companies) use (&$updated, &$errors) {
+				foreach ($companies as $company) {
+					try {
+						$normalizedName = mb_strtolower(trim($company->name));
+
+						$row = DB::table('job_imports')
+							->whereRaw('LOWER(TRIM(nama_perusahaan)) = ?', [$normalizedName])
+							->whereNotNull('logo_path')
+							->orderByDesc('id')
+							->first();
+
+						if ($row && !empty($row->logo_path)) {
+							$company->logo_path = $row->logo_path;
+							$company->save();
+							$updated++;
+						}
+					} catch (\Throwable $e) {
+						$errors[] = "Company {$company->id}: ".$e->getMessage();
+					}
+				}
+			});
+
+		$status = __("Filled logo for :count companies.", ['count' => $updated]);
+
+		return Redirect::route('admin.jobs.import.create')
+			->with('status', $status)
+			->with('import_errors', $errors);
+	}
+
 	private function parseDate($value): ?string
 	{
 		if (!$value) return null;

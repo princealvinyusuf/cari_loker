@@ -31,6 +31,8 @@ Route::middleware('auth')->group(function () {
         ->name('admin.jobs.import.process');
     Route::post('/admin/jobs/truncate', [\App\Http\Controllers\Admin\JobImportController::class, 'truncateAll'])
         ->name('admin.jobs.truncate');
+    Route::post('/admin/companies/fill-blanks', [\App\Http\Controllers\Admin\JobImportController::class, 'fillCompanyBlanks'])
+        ->name('admin.companies.fill-blanks');
     
     // Admin Blog Management
     Route::resource('admin/blog', \App\Http\Controllers\Admin\BlogController::class)->names('admin.blog');
