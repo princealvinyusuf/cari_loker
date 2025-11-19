@@ -252,34 +252,62 @@ class JobImportController extends Controller
 			abort(403);
 		}
 
-		// For now we only support filling logo_path from job_imports,
-		// and we require that column to exist in the staging table.
-		if (!Schema::hasColumn('job_imports', 'logo_path')) {
-			return Redirect::route('admin.jobs.import.create')
-				->with('import_errors', [__('Column :column not found on table :table.', ['column' => 'logo_path', 'table' => 'job_imports'])]);
-		}
-
 		@set_time_limit(0);
 		DB::disableQueryLog();
+
+		$hasLogoPathColumn = Schema::hasColumn('job_imports', 'logo_path');
 
 		$updated = 0;
 		$errors = [];
 
-		Company::whereNull('logo_path')
+		Company::where(function ($q) {
+				$q->whereNull('logo_path')
+					->orWhereNull('website_url')
+					->orWhereNull('industry')
+					->orWhereNull('description');
+			})
 			->orderBy('id')
-			->chunkById(100, function ($companies) use (&$updated, &$errors) {
+			->chunkById(100, function ($companies) use (&$updated, &$errors, $hasLogoPathColumn) {
 				foreach ($companies as $company) {
 					try {
 						$normalizedName = mb_strtolower(trim($company->name));
 
 						$row = DB::table('job_imports')
 							->whereRaw('LOWER(TRIM(nama_perusahaan)) = ?', [$normalizedName])
-							->whereNotNull('logo_path')
 							->orderByDesc('id')
 							->first();
 
-						if ($row && !empty($row->logo_path)) {
+						if (!$row) {
+							continue;
+						}
+
+						$changed = false;
+
+						// logo_path (if the column exists on job_imports)
+						if ($hasLogoPathColumn && is_null($company->logo_path) && !empty($row->logo_path)) {
 							$company->logo_path = $row->logo_path;
+							$changed = true;
+						}
+
+						// website_url from job_imports.url
+						if (is_null($company->website_url) && !empty($row->url)) {
+							$company->website_url = $row->url;
+							$changed = true;
+						}
+
+						// industry from job_imports.sektor
+						if (is_null($company->industry) && !empty($row->sektor)) {
+							$company->industry = $row->sektor;
+							$changed = true;
+						}
+
+						// description from job_imports.deskripsi
+						if (is_null($company->description) && !empty($row->deskripsi)) {
+							$company->description = $row->deskripsi;
+							$changed = true;
+						}
+
+						if ($changed) {
 							$company->save();
 							$updated++;
 						}
@@ -289,7 +317,7 @@ class JobImportController extends Controller
 				}
 			});
 
-		$status = __("Filled logo for :count companies.", ['count' => $updated]);
+		$status = __("Filled missing company data for :count companies.", ['count' => $updated]);
 
 		return Redirect::route('admin.jobs.import.create')
 			->with('status', $status)

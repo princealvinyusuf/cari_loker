@@ -91,9 +91,9 @@
                     <div class="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
                         <h3 class="font-semibold text-gray-800 dark:text-gray-200 mb-2">{{ __('Fill The Blank in Companies') }}</h3>
                         <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">
-                            {{ __('This will try to fill empty company logo fields from the staging table') }}
+                            {{ __('This will try to fill empty company fields (logo, website URL, industry, description) from the staging table') }}
                             <code>job_imports</code>
-                            {{ __('by matching on company name (Nama Perusahaan). Only companies with NULL logo_path will be updated.') }}
+                            {{ __('by matching on company name (Nama Perusahaan). Only NULL fields on existing companies will be updated.') }}
                         </p>
                         <form method="POST" action="{{ route('admin.companies.fill-blanks') }}">
                             @csrf
