@@ -1,0 +1,312 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Company;
+use App\Models\Job;
+use App\Models\JobCategory;
+use App\Models\Location;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+
+class JobController extends Controller
+{
+    public function __construct()
+    {
+        $this->middleware('throttle:job-listing')->only('index');
+        $this->middleware('throttle:job-detail')->only('show');
+    }
+
+    /**
+     * Display a listing of the resource.
+     */
+    public function index(Request $request)
+    {
+        $query = Job::query()
+            ->with(['company', 'location', 'category'])
+            ->where('status', 'published')
+            ->when($request->filled('q'), function ($q) use ($request) {
+                $term = '%' . str($request->string('q'))->trim()->toString() . '%';
+                $q->where(function ($sub) use ($term) {
+                    $sub->where('title', 'like', $term)
+                        ->orWhere('description', 'like', $term)
+                        ->orWhereHas('company', fn ($c) => $c->where('name', 'like', $term));
+                });
+            })
+            ->when($request->filled('category'), fn ($q) => $q->whereHas('category', function ($c) use ($request) {
+                $c->where('slug', $request->string('category'));
+            }))
+            ->when($request->filled('location'), function ($q) use ($request) {
+                $term = '%' . str($request->string('location'))->trim()->toString() . '%';
+                $q->whereHas('location', function ($l) use ($term) {
+                    $l->where('city', 'like', $term)
+                      ->orWhere('state', 'like', $term)
+                      ->orWhere('country', 'like', $term);
+                });
+            })
+            ->when($request->filled('type'), fn ($q) => $q->where('employment_type', $request->string('type')))
+            ->when($request->boolean('remote') || (is_array($request->work_arrangement) && in_array('remote_check', $request->work_arrangement)), fn ($q) => $q->where('is_remote', true))
+            ->when($request->filled('min_salary'), fn ($q) => $q->where('salary_min', '>=', (int) $request->integer('min_salary')))
+            ->when($request->filled('salary_range'), function ($q) use ($request) {
+                $salaryRanges = is_array($request->salary_range) ? $request->salary_range : [$request->salary_range];
+                $q->where(function ($sub) use ($salaryRanges) {
+                    foreach ($salaryRanges as $range) {
+                        $range = (string) $range;
+                        if (str_ends_with($range, '+')) {
+                            $min = (int) rtrim($range, '+');
+                            $sub->orWhere('salary_min', '>=', $min);
+                            continue;
+                        }
+                        if (str_contains($range, '-')) {
+                            [$minStr, $maxStr] = explode('-', $range, 2);
+                            $min = (int) $minStr;
+                            $max = (int) $maxStr;
+                            $sub->orWhere(function ($s) use ($min, $max) {
+                                $s->where('salary_min', '>=', $min)->where('salary_min', '<=', $max);
+                            });
+                        }
+                    }
+                });
+            })
+            ->when($request->filled('education_level'), function ($q) use ($request) {
+                $selected = $request->input('education_level');
+                $levels = is_array($selected) ? $selected : [$selected];
+                $levels = array_values(array_filter(array_map(fn ($level) => trim((string) $level), $levels)));
+                if (!empty($levels)) {
+                    $q->whereIn($q->qualifyColumn('education_level'), $levels);
+                }
+            })
+            ->when($request->filled('experience'), function ($q) use ($request) {
+                $experiences = is_array($request->experience) ? $request->experience : [$request->experience];
+                $q->where(function ($sub) use ($experiences) {
+                    foreach ($experiences as $exp) {
+                        $years = (int) $exp;
+                        $sub->orWhere(function ($s) use ($years) {
+                            $s->whereNull('experience_min')->orWhere('experience_min', '<=', $years);
+                        });
+                    }
+                });
+            })
+            ->when($request->filled('date_posted'), function ($q) use ($request) {
+                $dateRanges = is_array($request->date_posted) ? $request->date_posted : [$request->date_posted];
+                $q->where(function ($sub) use ($dateRanges) {
+                    foreach ($dateRanges as $range) {
+                        switch ($range) {
+                            case 'today':
+                                $sub->orWhereDate('created_at', now()->toDateString());
+                                break;
+                            case 'last_7_days':
+                                $sub->orWhere('created_at', '>=', now()->subDays(7));
+                                break;
+                            case 'last_15_days':
+                                $sub->orWhere('created_at', '>=', now()->subDays(15));
+                                break;
+                            case 'last_month':
+                                $sub->orWhere('created_at', '>=', now()->subMonth());
+                                break;
+                        }
+                    }
+                });
+            })
+            ->when($request->filled('work_arrangement'), function ($q) use ($request) {
+                $arrangements = is_array($request->work_arrangement) ? $request->work_arrangement : [$request->work_arrangement];
+                $q->where(function ($sub) use ($arrangements) {
+                    foreach ($arrangements as $arrangement) {
+                        if ($arrangement === 'onsite') {
+                            $sub->orWhere(function ($s) {
+                                $s->where('work_arrangement', 'onsite')->orWhere(function ($s2) {
+                                    $s2->whereNull('work_arrangement')->where('is_remote', false);
+                                });
+                            });
+                        } elseif ($arrangement === 'remote') {
+                            $sub->orWhere(function ($s) {
+                                $s->where('work_arrangement', 'remote')->orWhere('is_remote', true);
+                            });
+                        }
+                    }
+                });
+            });
+
+        $sort = $request->string('sort', 'date');
+        if ($sort === 'salary') {
+            $query->orderByDesc('salary_max');
+        } else {
+            $query->latest();
+        }
+
+        $jobs = $query->paginate(10)->withQueryString();
+
+        // Cache categories
+        $categories = Cache::remember('categories:with-count', 600, function() {
+            return JobCategory::query()
+                ->withCount(['jobs' => fn ($j) => $j->where('status', 'published')])
+                ->orderBy('name')
+                ->get();
+        });
+        // Cache education levels
+        $educationLevels = Cache::remember('education_levels:distinct', 600, function() {
+            return Job::query()
+                ->whereNotNull('education_level')
+                ->where('status', 'published')
+                ->select('education_level')
+                ->distinct()->orderBy('education_level')->pluck('education_level')->filter()->values();
+        });
+        // Cache popular companies
+        $popularCompanies = Cache::remember('companies:popular', 600, function() {
+            return Company::query()
+                ->withCount(['jobs' => fn ($j) => $j->where('status', 'published')])
+                ->orderByDesc('jobs_count')->limit(8)->get();
+        });
+
+        return view('jobs.index', [
+            'jobs' => $jobs,
+            'categories' => $categories,
+            'popularCompanies' => $popularCompanies,
+            'educationLevels' => $educationLevels,
+        ]);
+    }
+
+    /**
+     * Display the alternative landing page (Beranda)
+     */
+    public function beranda(Request $request)
+    {
+        // Get categories with job counts
+        $categories = Cache::remember('beranda:categories:with-count', 600, function() {
+            return JobCategory::query()
+                ->withCount(['jobs' => fn ($j) => $j->where('status', 'published')])
+                ->orderBy('name')
+                ->get();
+        });
+
+        // Get popular companies with logos
+        $popularCompanies = Cache::remember('beranda:companies:popular', 600, function() {
+            return Company::query()
+                ->whereNotNull('logo_path')
+                ->withCount(['jobs' => fn ($j) => $j->where('status', 'published')])
+                ->orderByDesc('jobs_count')
+                ->limit(8)
+                ->get();
+        });
+
+        // Get featured/latest jobs
+        $featuredJobs = Job::query()
+            ->with(['company', 'location', 'category'])
+            ->where('status', 'published')
+            ->latest()
+            ->limit(6)
+            ->get();
+
+        // Get top jobs (by views or most recent)
+        $topJobs = Job::query()
+            ->with(['company', 'location', 'category'])
+            ->where('status', 'published')
+            ->orderByDesc('views')
+            ->orderByDesc('created_at')
+            ->limit(6)
+            ->get();
+
+        return view('beranda', [
+            'categories' => $categories,
+            'popularCompanies' => $popularCompanies,
+            'featuredJobs' => $featuredJobs,
+            'topJobs' => $topJobs,
+        ]);
+    }
+
+    /**
+     * Show the form for creating a new resource.
+     */
+    public function create()
+    {
+        //
+    }
+
+    /**
+     * Store a newly created resource in storage.
+     */
+    public function store(Request $request)
+    {
+        //
+    }
+
+    /**
+     * Display the specified resource.
+     */
+    public function show(Job $job)
+    {
+        $job->load(['company', 'location', 'category', 'skills']);
+
+        // If expired, show dedicated expired page with related jobs
+        $isExpired = $job->valid_until && $job->valid_until->lt(now()->startOfDay());
+        if ($isExpired) {
+            $relatedJobs = Job::query()
+                ->with(['company', 'location'])
+                ->where('status', 'published')
+                ->where('id', '!=', $job->id)
+                ->where(function ($q) use ($job) {
+                    $q->where('company_id', $job->company_id);
+                    if ($job->category_id) {
+                        $q->orWhere('category_id', $job->category_id);
+                    }
+                })
+                ->latest()
+                ->limit(6)
+                ->get();
+
+            return view('jobs.expired', [
+                'job' => $job,
+                'relatedJobs' => $relatedJobs,
+            ]);
+        }
+
+        // Increment views count for active listings
+        $job->increment('views');
+
+        $relatedJobs = Job::query()
+            ->with(['company', 'location'])
+            ->where('status', 'published')
+            ->where('id', '!=', $job->id)
+            ->where(function ($q) use ($job) {
+                $q->where('company_id', $job->company_id);
+                if ($job->category_id) {
+                    $q->orWhere('category_id', $job->category_id);
+                }
+            })
+            ->latest()
+            ->limit(6)
+            ->get();
+
+        $totalApplicants = $job->applications()->count() + (int) $job->apply_clicks;
+
+        return view('jobs.show', [
+            'job' => $job,
+            'relatedJobs' => $relatedJobs,
+            'totalApplicants' => $totalApplicants,
+        ]);
+    }
+
+    /**
+     * Show the form for editing the specified resource.
+     */
+    public function edit(string $id)
+    {
+        //
+    }
+
+    /**
+     * Update the specified resource in storage.
+     */
+    public function update(Request $request, string $id)
+    {
+        //
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     */
+    public function destroy(string $id)
+    {
+        //
+    }
+}
