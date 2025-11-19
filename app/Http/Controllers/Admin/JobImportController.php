@@ -114,8 +114,10 @@ class JobImportController extends Controller
 
 						$location = null;
 						if ($province || $city) {
+							// Ensure city is never null because the DB column is non-nullable.
+							$locationCity = $city ?: ($province ?: 'Unknown');
 							$location = Location::firstOrCreate([
-								'city' => $city ?: null,
+								'city' => $locationCity,
 								'state' => $province ?: null,
 								'country' => 'ID',
 							]);
@@ -149,7 +151,11 @@ class JobImportController extends Controller
 						$job->experience_max = $expMax;
 						$job->salary_min = $salaryMin;
 						$job->salary_max = $salaryMax;
-						$job->salary_currency = ($salaryMin || $salaryMax) ? 'IDR' : null;
+						// Only set salary_currency when we actually have salary data,
+						// otherwise let the DB default apply instead of forcing NULL.
+						if ($salaryMin || $salaryMax) {
+							$job->salary_currency = 'IDR';
+						}
 						$job->is_remote = ($arrangement === 'remote');
 						$job->status = 'published';
 						$job->valid_until = $validUntil;
